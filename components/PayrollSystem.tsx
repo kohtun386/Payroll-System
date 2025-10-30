@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { CURRENCIES, EXCHANGE_RATES } from '../constants';
-import { Employee, PayrollEntry, Currency, EmployeeAttendance } from '../types';
+import { Employee, PayrollEntry, Currency, EmployeeAttendance, HistoricalPayrollRun } from '../types';
 import Payslip from './Payslip';
+import { Lock, Printer } from 'lucide-react';
+import MultiPayslipPrint from './MultiPayslipPrint';
 
 const calculateMyanmarTax = (annualGrossSalaryMMK: number, employee: Employee, annualSSB: number): number => {
     if (annualGrossSalaryMMK <= 0) return 0;
@@ -43,14 +45,35 @@ interface PayrollSystemProps {
   payrollData: PayrollEntry[];
   onPayrollCalculated: (data: PayrollEntry[]) => void;
   hotelName: string;
+  historicalPayroll: HistoricalPayrollRun[];
+  onFinalizePayroll: () => void;
+  selectedCurrency: Currency;
+  setSelectedCurrency: (currency: Currency) => void;
 }
 
-const PayrollSystem: React.FC<PayrollSystemProps> = ({ employees, attendanceData, payrollData, onPayrollCalculated, hotelName }) => {
-  const [selectedCurrency, setSelectedCurrency] = useState<Currency>(CURRENCIES[1]); // Default to MMK
+const PayrollSystem: React.FC<PayrollSystemProps> = ({ 
+    employees, 
+    attendanceData, 
+    payrollData, 
+    onPayrollCalculated, 
+    hotelName,
+    historicalPayroll,
+    onFinalizePayroll,
+    selectedCurrency,
+    setSelectedCurrency
+}) => {
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [showPayslip, setShowPayslip] = useState(false);
+  const [showMultiPrint, setShowMultiPrint] = useState(false);
   const [serviceMoneyPerPoint, setServiceMoneyPerPoint] = useState<number>(50000);
   const [manualDeductions, setManualDeductions] = useState<Record<string, { amount: number; reason: string }>>({});
+
+  const isCurrentMonthFinalized = useMemo(() => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth();
+    return historicalPayroll.some(p => p.year === year && p.month === month);
+  }, [historicalPayroll]);
 
   const handleDeductionChange = (employeeId: string, value: string, field: 'amount' | 'reason') => {
     setManualDeductions(prev => ({
@@ -74,6 +97,11 @@ const PayrollSystem: React.FC<PayrollSystemProps> = ({ employees, attendanceData
   };
 
   const calculatePayroll = () => {
+    if (isCurrentMonthFinalized) {
+      if (!window.confirm("This month's payroll has already been finalized. Recalculating will overwrite the saved data when you finalize again. Do you want to continue?")) {
+        return;
+      }
+    }
     const exchangeRateToMMK = EXCHANGE_RATES['MMK'];
     
     const daysInMonth = attendanceData[0]?.dailyStatuses.length || 30;
@@ -182,15 +210,42 @@ const PayrollSystem: React.FC<PayrollSystemProps> = ({ employees, attendanceData
                 placeholder="e.g. 50000"
             />
         </div>
-        <button
-          onClick={calculatePayroll}
-          disabled={!attendanceData.length}
-          className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
-        >
-          {attendanceData.length ? 'Calculate Payroll' : 'Loading Attendance...'}
-        </button>
+        <div className="flex items-center gap-2">
+            <button
+            onClick={calculatePayroll}
+            disabled={!attendanceData.length}
+            className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+            {attendanceData.length ? 'Calculate Payroll' : 'Loading Attendance...'}
+            </button>
+             <button
+                onClick={onFinalizePayroll}
+                disabled={payrollData.length === 0}
+                className={`flex items-center gap-2 w-full md:w-auto font-bold py-2 px-4 rounded-lg transition-colors disabled:cursor-not-allowed ${
+                    isCurrentMonthFinalized 
+                    ? 'bg-green-600 text-white disabled:bg-green-400' 
+                    : 'bg-yellow-500 hover:bg-yellow-600 text-white disabled:bg-gray-400'
+                }`}
+                title={isCurrentMonthFinalized ? "This month's payroll is already finalized. Clicking again will overwrite it." : "Saves a permanent snapshot of this payroll run for historical reporting."}
+                >
+                <Lock size={16} />
+                {isCurrentMonthFinalized ? 'Finalized' : 'Finalize & Save'}
+            </button>
+        </div>
       </div>
       
+       <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-md flex justify-end">
+            <button
+                onClick={() => setShowMultiPrint(true)}
+                disabled={payrollData.length === 0}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
+                title="Print all payslips"
+            >
+                <Printer size={16} />
+                Print All Payslips
+            </button>
+        </div>
+
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-x-auto">
         <table className="w-full text-sm text-left text-gray-500 dark:text-gray-400">
           <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
@@ -274,6 +329,28 @@ const PayrollSystem: React.FC<PayrollSystemProps> = ({ employees, attendanceData
           hotelName={hotelName}
         />
       )}
+
+       {showMultiPrint && (
+        <MultiPayslipPrint
+          employees={employees}
+          payrollData={payrollData.map(p => ({
+              ...p,
+              baseSalary: convertToSelectedCurrency(p.baseSalary),
+              serviceCharge: convertToSelectedCurrency(p.serviceCharge),
+              overtime: convertToSelectedCurrency(p.overtime),
+              unpaidLeaveDeduction: convertToSelectedCurrency(p.unpaidLeaveDeduction),
+              grossPay: convertToSelectedCurrency(p.grossPay),
+              tax: convertToSelectedCurrency(p.tax),
+              ssb: convertToSelectedCurrency(p.ssb),
+              manualDeductions: convertToSelectedCurrency(p.manualDeductions),
+              totalDeductions: convertToSelectedCurrency(p.totalDeductions),
+              netPay: convertToSelectedCurrency(p.netPay),
+          }))}
+          currency={selectedCurrency}
+          onClose={() => setShowMultiPrint(false)}
+          hotelName={hotelName}
+        />
+       )}
     </div>
   );
 };

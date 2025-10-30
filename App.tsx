@@ -5,11 +5,13 @@ import Attendance from './components/Attendance';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
 import Employees from './components/Employees';
-import { LayoutDashboard, Banknote, Building2, CalendarCheck, FileText, Cog, Users } from 'lucide-react';
-import { MOCK_EMPLOYEES, ATTENDANCE_STATUSES } from './constants';
-import { EmployeeAttendance, AttendanceSummary, PayrollEntry, Employee, EmployeeHistoryEvent, EventType } from './types';
+import EmployeeHistory from './components/EmployeeHistory'; // New Import
+import { LayoutDashboard, Banknote, Building2, CalendarCheck, FileText, Cog, Users, History, Sun, Moon } from 'lucide-react'; // Added History, Sun, Moon icons
+import { MOCK_EMPLOYEES, ATTENDANCE_STATUSES, CURRENCIES } from './constants';
+import { EmployeeAttendance, AttendanceSummary, PayrollEntry, Employee, EmployeeHistoryEvent, EventType, HistoricalPayrollRun, Currency } from './types';
 
-type View = 'dashboard' | 'payroll' | 'attendance' | 'reports' | 'settings' | 'employees';
+type View = 'dashboard' | 'payroll' | 'attendance' | 'reports' | 'settings' | 'employees' | 'history'; // Added 'history' view
+type Theme = 'light' | 'dark';
 
 const App: React.FC = () => {
   const [activeView, setActiveView] = useState<View>('dashboard');
@@ -26,6 +28,36 @@ const App: React.FC = () => {
     const savedHistory = localStorage.getItem('employeeHistory');
     return savedHistory ? JSON.parse(savedHistory) : [];
   });
+  const [historicalPayroll, setHistoricalPayroll] = useState<HistoricalPayrollRun[]>(() => {
+    const savedHistory = localStorage.getItem('historicalPayroll');
+    return savedHistory ? JSON.parse(savedHistory) : [];
+  });
+  const [selectedCurrency, setSelectedCurrency] = useState<Currency>(() => {
+    const savedCurrencyCode = localStorage.getItem('selectedCurrency');
+    return CURRENCIES.find(c => c.code === savedCurrencyCode) || CURRENCIES[1]; // Default to MMK
+  });
+  const [theme, setTheme] = useState<Theme>('light');
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as Theme | null;
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    if (savedTheme) {
+      setTheme(savedTheme);
+    } else if (prefersDark) {
+      setTheme('dark');
+    }
+  }, []);
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.remove('light', 'dark');
+    root.classList.add(theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
+  };
 
   useEffect(() => {
     localStorage.setItem('hotelName', hotelName);
@@ -38,6 +70,15 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('employeeHistory', JSON.stringify(employeeHistory));
   }, [employeeHistory]);
+
+  useEffect(() => {
+    localStorage.setItem('historicalPayroll', JSON.stringify(historicalPayroll));
+  }, [historicalPayroll]);
+
+  useEffect(() => {
+    localStorage.setItem('selectedCurrency', selectedCurrency.code);
+  }, [selectedCurrency]);
+
 
   useEffect(() => {
     const today = new Date();
@@ -148,16 +189,47 @@ const App: React.FC = () => {
     setEmployeeHistory(prev => [...prev, { ...event, id: `EVT${Date.now()}` }]);
   };
 
+  const handleFinalizePayroll = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth();
+
+    const newRun: HistoricalPayrollRun = {
+        year,
+        month,
+        payrollData: JSON.parse(JSON.stringify(payrollData)),
+        employees: JSON.parse(JSON.stringify(employees)),
+    };
+    
+    setHistoricalPayroll(prev => {
+        // Remove any existing entry for the same month and year to prevent duplicates
+        const filteredHistory = prev.filter(p => !(p.year === year && p.month === month));
+        return [...filteredHistory, newRun];
+    });
+
+    alert(`Payroll for ${today.toLocaleString('default', { month: 'long', year: 'numeric' })} has been finalized and saved.`);
+  };
+
   const renderView = () => {
     switch (activeView) {
       case 'dashboard':
-        return <Dashboard employees={employees} />;
+        return <Dashboard employees={employees} selectedCurrency={selectedCurrency} theme={theme} />;
       case 'payroll':
-        return <PayrollSystem employees={employees} attendanceData={attendanceData} onPayrollCalculated={setPayrollData} payrollData={payrollData} hotelName={hotelName} />;
+        return <PayrollSystem 
+                  employees={employees} 
+                  attendanceData={attendanceData} 
+                  onPayrollCalculated={setPayrollData} 
+                  payrollData={payrollData} 
+                  hotelName={hotelName} 
+                  historicalPayroll={historicalPayroll}
+                  onFinalizePayroll={handleFinalizePayroll}
+                  selectedCurrency={selectedCurrency}
+                  setSelectedCurrency={setSelectedCurrency}
+                />;
       case 'attendance':
         return <Attendance attendanceData={attendanceData} onAttendanceChange={handleAttendanceChange} />;
       case 'reports':
-        return <Reports payrollData={payrollData} employees={employees} />;
+        return <Reports historicalPayroll={historicalPayroll} employees={employees} theme={theme} />;
       case 'settings':
         return <Settings hotelName={hotelName} setHotelName={setHotelName} />;
       case 'employees':
@@ -170,8 +242,10 @@ const App: React.FC = () => {
                   onAddHistoryEvent={handleAddHistoryEvent}
                   onBulkAddEmployees={handleBulkAddEmployees}
                 />;
+      case 'history':
+        return <EmployeeHistory employees={employees} employeeHistory={employeeHistory} />;
       default:
-        return <Dashboard employees={employees} />;
+        return <Dashboard employees={employees} selectedCurrency={selectedCurrency} theme={theme} />;
     }
   };
 
@@ -199,13 +273,23 @@ const App: React.FC = () => {
         <nav className="flex-1 p-4 space-y-2">
           <NavItem view="dashboard" icon={<LayoutDashboard size={20} />} label="Dashboard" />
           <NavItem view="employees" icon={<Users size={20} />} label="Employees" />
+          <NavItem view="history" icon={<History size={20} />} label="Employee History" />
           <NavItem view="attendance" icon={<CalendarCheck size={20} />} label="Attendance" />
           <NavItem view="payroll" icon={<Banknote size={20} />} label="Payroll System" />
           <NavItem view="reports" icon={<FileText size={20} />} label="Reports" />
           <NavItem view="settings" icon={<Cog size={20} />} label="Settings" />
         </nav>
         <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-          <p className="text-xs text-center text-gray-500">© {new Date().getFullYear()} {hotelName} Inc.</p>
+            <div className="flex justify-between items-center">
+                <p className="text-xs text-center text-gray-500">© {new Date().getFullYear()} {hotelName}</p>
+                 <button 
+                    onClick={toggleTheme}
+                    className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    aria-label="Toggle theme"
+                    >
+                    {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+                </button>
+            </div>
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">

@@ -77,3 +77,11 @@ export interface EmployeeAttendance {
   dailyStatuses: string[];
   summary: AttendanceSummary;
 }
+
+export interface HistoricalPayrollRun {
+  year: number;
+  month: number; // 0-11
+  payrollData: PayrollEntry[];
+  // Storing a snapshot of employees is important in case employees are deleted later
+  employees: Employee[];
+}

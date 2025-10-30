@@ -1,23 +1,29 @@
 import React from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Department, Employee } from '../types';
+import { Department, Employee, Currency } from '../types';
 import { Users, Banknote, Percent, Building } from 'lucide-react';
+import { EXCHANGE_RATES } from '../constants';
 
 interface DashboardProps {
   employees: Employee[];
+  selectedCurrency: Currency;
+  theme: 'light' | 'dark';
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ employees }) => {
+const Dashboard: React.FC<DashboardProps> = ({ employees, selectedCurrency, theme }) => {
   const totalEmployees = employees.length;
-  const totalPayrollUSD = employees.reduce((acc, emp) => acc + emp.baseSalaryUSD, 0);
+  
+  const exchangeRate = EXCHANGE_RATES[selectedCurrency.code] || 1;
+
+  const totalPayrollConverted = employees.reduce((acc, emp) => acc + emp.baseSalaryUSD, 0) * exchangeRate;
   
   const departmentData = Object.values(Department).map(dept => {
     const employeesInDept = employees.filter(emp => emp.department === dept);
-    const payrollInDept = employeesInDept.reduce((acc, emp) => acc + emp.baseSalaryUSD, 0);
+    const payrollInDeptUSD = employeesInDept.reduce((acc, emp) => acc + emp.baseSalaryUSD, 0);
     return {
       name: dept,
       employeeCount: employeesInDept.length,
-      payroll: payrollInDept,
+      payroll: payrollInDeptUSD * exchangeRate,
     };
   }).filter(d => d.employeeCount > 0);
 
@@ -32,6 +38,11 @@ const Dashboard: React.FC<DashboardProps> = ({ employees }) => {
       </div>
     </div>
   );
+
+  const tooltipStyle = theme === 'dark'
+    ? { backgroundColor: 'rgba(31, 41, 55, 0.8)', borderColor: '#4b5563', color: '#fff', borderRadius: '0.5rem' }
+    : { backgroundColor: 'rgba(255, 255, 255, 0.8)', borderColor: '#e5e7eb', color: '#000', borderRadius: '0.5rem' };
+
 
   return (
     <div className="p-6 md:p-8 space-y-8">
@@ -49,8 +60,8 @@ const Dashboard: React.FC<DashboardProps> = ({ employees }) => {
         />
         <StatCard 
           icon={<Banknote className="text-white" />} 
-          title="Total Payroll (USD)" 
-          value={`$${totalPayrollUSD.toLocaleString()}`} 
+          title={`Total Payroll (${selectedCurrency.code})`}
+          value={`${selectedCurrency.symbol}${totalPayrollConverted.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
           color="bg-green-500"
         />
         <StatCard 
@@ -68,24 +79,20 @@ const Dashboard: React.FC<DashboardProps> = ({ employees }) => {
       </div>
 
       <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-md">
-        <h3 className="text-xl font-semibold mb-4">Payroll Distribution by Department (USD)</h3>
+        <h3 className="text-xl font-semibold mb-4">Payroll Distribution by Department ({selectedCurrency.code})</h3>
         <div style={{ width: '100%', height: 400 }}>
           <ResponsiveContainer>
             <BarChart data={departmentData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(128, 128, 128, 0.2)" />
               <XAxis dataKey="name" angle={-25} textAnchor="end" height={80} interval={0} tick={{ fontSize: 12, fill: 'currentColor' }} />
-              <YAxis tick={{ fontSize: 12, fill: 'currentColor' }} />
+              <YAxis tick={{ fontSize: 12, fill: 'currentColor' }} tickFormatter={(value) => new Intl.NumberFormat('en-US', { notation: 'compact', compactDisplay: 'short' }).format(value as number)}/>
               <Tooltip
-                contentStyle={{ 
-                  backgroundColor: 'rgba(31, 41, 55, 0.8)', 
-                  borderColor: '#4b5563', 
-                  color: '#fff',
-                  borderRadius: '0.5rem'
-                }} 
+                contentStyle={tooltipStyle}
                 cursor={{fill: 'rgba(128, 128, 128, 0.1)'}}
+                formatter={(value: number) => `${selectedCurrency.symbol}${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
               />
               <Legend />
-              <Bar dataKey="payroll" fill="#3b82f6" name="Payroll (USD)" />
+              <Bar dataKey="payroll" fill="#3b82f6" name={`Payroll (${selectedCurrency.code})`} />
             </BarChart>
           </ResponsiveContainer>
         </div>
